@@ -17,7 +17,7 @@
             class="mt-10 flex flex-col sm:flex-row gap-4 justify-center md:justify-start"
           >
             <NuxtLink
-              to="/money "
+              to="/money"
               class="px-8 py-4 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-transform transform hover:scale-105"
             >
               Record Expenses
