@@ -9,55 +9,78 @@
           Track and organize all your important tasks here.
         </p>
 
-        <!-- Fixed Date Picker Section -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-          <input
-            v-model="newTodo.text"
-            @keyup.enter="addTodo"
-            placeholder="What needs to be done?"
-            class="md:col-span-3 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <div class="relative">
-            <VueDatePicker
-              v-model="newTodo.reminder_at"
-              :is24="true"
-              enable-seconds
-              placeholder="Set reminder time"
-              teleport-center
-              auto-apply
-              :min-date="new Date()"
-              input-class-name="dp-fixed-input"
-              :clearable="true"
+        <form @submit.prevent="handleSubmit" class="space-y-4">
+          <div>
+            <input
+              v-model="newTodo.text"
+              @keyup.enter="handleSubmit"
+              placeholder="What needs to be done?"
+              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <select
-            v-model="newTodo.priority"
-            class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          >
-            <option value="none">No Priority</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="relative md:col-span-1">
+              <VueDatePicker
+                v-model="newTodo.reminder_at"
+                :is24="true"
+                enable-seconds
+                placeholder="Set reminder time"
+                teleport-center
+                auto-apply
+                input-class-name="dp-fixed-input"
+                :clearable="true"
+              />
+            </div>
+            <select
+              v-model="newTodo.priority"
+              class="md:col-span-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white h-[48px]"
+            >
+              <option value="none">No Priority</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+            <button
+              type="submit"
+              class="md:col-span-1 text-white font-bold rounded-lg transition-colors shadow h-[48px]"
+              :class="
+                isEditing
+                  ? 'bg-green-500 hover:bg-green-600'
+                  : 'bg-blue-500 hover:bg-blue-600'
+              "
+            >
+              {{ isEditing ? "Update Task" : "Add Task" }}
+            </button>
+          </div>
           <button
-            @click="addTodo"
-            class="px-6 py-3 bg-blue-500 text-white font-bold rounded-lg hover:bg-blue-600 transition-colors shadow"
+            v-if="isEditing"
+            type="button"
+            @click="cancelEdit"
+            class="w-full bg-gray-500 text-white py-3 rounded-lg hover:bg-gray-600 transition-colors duration-200 font-semibold"
           >
-            Add Task
+            Cancel Edit
           </button>
-        </div>
+        </form>
 
-        <div class="space-y-6">
+        <div class="space-y-6 mt-8">
           <div
-            v-if="Object.keys(groupedTodos).length === 0"
+            v-if="Object.keys(groupedTodos).length === 0 && !isLoading"
             class="text-center text-gray-500 py-6"
           >
             🎉<br />
             No tasks yet. Please add your first task.
           </div>
+          <div v-if="isLoading" class="text-center text-gray-500 py-6">
+            Loading tasks...
+          </div>
           <div v-for="(dayTasks, day) in groupedTodos" :key="day">
             <h3
-              class="text-lg font-bold text-gray-700 mb-3 pb-2 border-b-2 border-blue-300"
+              class="text-lg font-bold mb-3 pb-2 border-b-2"
+              :class="
+                day.includes('(Past)')
+                  ? 'text-gray-500 border-gray-300'
+                  : 'text-gray-700 border-blue-300'
+              "
             >
               {{ day }}
             </h3>
@@ -147,6 +170,12 @@
                 <div
                   class="flex items-center gap-2 mt-4 pt-3 border-t sm:border-none sm:pt-0 sm:mt-0 sm:ml-auto flex-shrink-0"
                 >
+                  <button
+                    @click="startEdit(todo)"
+                    class="px-3 py-1 text-xs font-semibold text-white bg-yellow-500 rounded-full hover:bg-yellow-600"
+                  >
+                    Edit
+                  </button>
                   <template v-if="todo.status === 'pending'">
                     <button
                       @click="markAs(todo.id, 'completed')"
@@ -200,7 +229,6 @@
                 placeholder="Select new reminder time"
                 teleport-center
                 auto-apply
-                :min-date="new Date()"
                 class="w-full"
                 input-class-name="dp-fixed-input"
                 :clearable="true"
@@ -257,12 +285,32 @@ import { ref, computed, onMounted, watch } from "vue";
 import VueDatePicker from "@vuepic/vue-datepicker";
 import "@vuepic/vue-datepicker/dist/main.css";
 
+// --- STATE MANAGEMENT ---
 const todos = ref([]);
-const newTodo = ref({ text: "", reminder_at: null, priority: "none" });
+const newTodo = ref({
+  id: null,
+  text: "",
+  reminder_at: null,
+  priority: "none",
+});
 const isModalOpen = ref(false);
 const modalContext = ref({ type: null, todoId: null });
 const modalInput = ref({ new_date: null, reason: "" });
 
+const isEditing = ref(false);
+const editingId = ref(null);
+const isLoading = ref(true);
+
+// --- FORM SUBMISSION ---
+const handleSubmit = () => {
+  if (isEditing.value) {
+    updateTodo();
+  } else {
+    addTodo();
+  }
+};
+
+// --- AUTO-SAVING DATA ON CHANGE ---
 watch(
   todos,
   (newTodos) => {
@@ -274,11 +322,16 @@ watch(
     }));
     if (typeof saveTodos === "function") {
       saveTodos(todosToSave);
+    } else {
+      console.warn(
+        "saveTodos function is not defined. Data might not be saved to Local Storage."
+      );
     }
   },
   { deep: true }
 );
 
+// --- LIFECYCLE HOOK ---
 onMounted(() => {
   if (typeof loadTodos === "function") {
     const loadedTodos = loadTodos();
@@ -286,42 +339,92 @@ onMounted(() => {
       ...todo,
       reminder_at: todo.reminder_at ? new Date(todo.reminder_at) : null,
     }));
+  } else {
+    console.warn(
+      "loadTodos function is not defined. Data might not be loaded from Local Storage."
+    );
   }
+  isLoading.value = false;
   if (Notification.permission !== "granted") {
     Notification.requestPermission();
   }
   setInterval(checkReminders, 5000);
 });
 
+// --- COMPUTED PROPERTIES ---
 const groupedTodos = computed(() => {
-  const groups = {};
+  const futureGroups = {};
+  const pastGroups = {};
   const undatedTasks = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Reset waktu hari ini ke tengah malam untuk perbandingan yang akurat
+
   todos.value.forEach((todo) => {
     if (todo.reminder_at) {
-      const date = new Date(todo.reminder_at);
-      const dayKey = date.toISOString().split("T")[0];
-      if (!groups[dayKey]) groups[dayKey] = [];
-      groups[dayKey].push(todo);
+      const reminderDate = new Date(todo.reminder_at);
+      const dayKey = reminderDate.toISOString().split("T")[0];
+
+      const reminderDateWithoutTime = new Date(reminderDate);
+      reminderDateWithoutTime.setHours(0, 0, 0, 0);
+
+      if (reminderDateWithoutTime < today) {
+        // Ini adalah tugas yang terlewat
+        if (!pastGroups[dayKey]) pastGroups[dayKey] = [];
+        pastGroups[dayKey].push(todo);
+      } else {
+        // Ini adalah tugas hari ini atau masa depan
+        if (!futureGroups[dayKey]) futureGroups[dayKey] = [];
+        futureGroups[dayKey].push(todo);
+      }
     } else {
+      // Tugas tanpa tanggal
       undatedTasks.push(todo);
     }
   });
-  const sortedGroupKeys = Object.keys(groups).sort();
-  const sortedGroups = {};
-  for (const key of sortedGroupKeys) {
-    const date = new Date(key);
-    const displayKey = date.toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
+
+  const finalGroups = {};
+
+  // 1. Tambahkan tugas masa depan, diurutkan berdasarkan tanggal
+  Object.keys(futureGroups)
+    .sort()
+    .forEach((key) => {
+      const date = new Date(key + "T00:00:00");
+      const displayKey = date.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      finalGroups[displayKey] = futureGroups[key];
     });
-    sortedGroups[displayKey] = groups[key];
+
+  // 2. Tambahkan tugas tanpa tanggal
+  if (undatedTasks.length > 0) {
+    finalGroups["Tasks Without a Date"] = undatedTasks;
   }
-  if (undatedTasks.length > 0)
-    sortedGroups["Tasks Without a Date"] = undatedTasks;
-  return sortedGroups;
+
+  // 3. Tambahkan tugas terlewat di paling bawah, diurutkan berdasarkan tanggal
+  Object.keys(pastGroups)
+    .sort()
+    .forEach((key) => {
+      const date = new Date(key + "T00:00:00");
+      const displayKey =
+        date.toLocaleDateString("en-US", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        }) + " (Past)"; // Tambahkan label (Past) untuk membedakan
+      finalGroups[displayKey] = pastGroups[key];
+    });
+
+  return finalGroups;
 });
+
+// --- TODO METHODS ---
+const resetNewTodoForm = () => {
+  newTodo.value = { id: null, text: "", reminder_at: null, priority: "none" };
+};
 
 const addTodo = () => {
   if (newTodo.value.text.trim()) {
@@ -337,8 +440,52 @@ const addTodo = () => {
       pending_reason: null,
       overdue_text: null,
     });
-    newTodo.value = { text: "", reminder_at: null, priority: "none" };
+    resetNewTodoForm();
   }
+};
+
+const startEdit = (todoToEdit) => {
+  isEditing.value = true;
+  editingId.value = todoToEdit.id;
+  newTodo.value = {
+    id: todoToEdit.id,
+    text: todoToEdit.text,
+    reminder_at: todoToEdit.reminder_at
+      ? new Date(todoToEdit.reminder_at)
+      : null,
+    priority: todoToEdit.priority,
+  };
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+const updateTodo = () => {
+  const index = todos.value.findIndex((t) => t.id === editingId.value);
+  if (index !== -1) {
+    if (!newTodo.value.text.trim()) {
+      alert("Task text cannot be empty.");
+      return;
+    }
+    todos.value[index] = {
+      ...todos.value[index],
+      text: newTodo.value.text.trim(),
+      reminder_at: newTodo.value.reminder_at,
+      priority: newTodo.value.priority,
+      reminder_fired:
+        todos.value[index].reminder_at?.getTime() !==
+        newTodo.value.reminder_at?.getTime()
+          ? false
+          : todos.value[index].reminder_fired,
+      is_reminding: false,
+      overdue_text: null,
+    };
+  }
+  cancelEdit();
+};
+
+const cancelEdit = () => {
+  isEditing.value = false;
+  editingId.value = null;
+  resetNewTodoForm();
 };
 
 const markAs = (id, newStatus) => {
@@ -352,11 +499,15 @@ const deleteTodo = (id) => {
   }
 };
 
+// --- MODAL METHODS ---
 const openModal = (type, todoId) => {
   const todo = todos.value.find((t) => t.id === todoId);
   modalContext.value = { type, todoId };
   if (type === "pending" && todo && todo.reminder_at) {
-    modalInput.value = { new_date: new Date(todo.reminder_at), reason: "" };
+    modalInput.value = {
+      new_date: new Date(todo.reminder_at),
+      reason: todo.pending_reason || "",
+    };
   } else {
     modalInput.value = { new_date: null, reason: "" };
   }
@@ -386,6 +537,7 @@ const handleModalSubmit = () => {
   closeModal();
 };
 
+// --- DISPLAY HELPERS ---
 const formatReminderDate = (dateValue) => {
   if (!dateValue) return "";
   const date = typeof dateValue === "string" ? new Date(dateValue) : dateValue;
@@ -432,6 +584,7 @@ const getPriorityBadgeClass = (priority) => {
   }
 };
 
+// --- REMINDER LOGIC ---
 const checkReminders = () => {
   const now = new Date();
   todos.value.forEach((todo) => {
@@ -463,57 +616,34 @@ const checkReminders = () => {
 :deep(.dp-fixed-input) {
   width: 100%;
   padding: 0.75rem 1rem;
-  padding-right: 2.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
+  padding-right: 2.5rem; /* Ruang untuk clear icon */
+  border: 1px solid #d1d5db; /* border-gray-300 */
+  border-radius: 0.5rem; /* rounded-lg */
   font-size: 1rem;
-  line-height: 1.5;
+  line-height: 1.5; /* Menyamakan tinggi dengan input lain */
   background-color: white;
-  min-height: 3rem;
+  min-height: 3rem; /* Menyamakan tinggi dengan input lain (48px) */
+  box-sizing: border-box; /* Agar padding dan border masuk dalam height */
+  cursor: pointer;
 }
 
 :deep(.dp-fixed-input:focus) {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px #bfdbfe;
+  border-color: #3b82f6; /* focus:ring-blue-500 (warna border) */
+  box-shadow: 0 0 0 2px #bfdbfe; /* Mirip focus:ring-2 */
 }
 
+/* Pastikan ikon clear terlihat dan posisinya benar */
 :deep(.dp__clear_icon) {
-  right: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #6b7280;
+  right: 0.75rem !important; /* Lebih ke dalam agar tidak tertutup jika input terlalu sempit */
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  color: #6b7280; /* text-gray-500 */
+  width: 1rem !important; /* Sesuaikan ukuran jika perlu */
+  height: 1rem !important; /* Sesuaikan ukuran jika perlu */
 }
 
 :deep(.dp__clear_icon:hover) {
-  color: #ef4444;
-}
-
-/* Original styles preserved */
-:deep(.custom-datepicker-input) {
-  padding-top: 0.75rem !important;
-  padding-bottom: 0.75rem !important;
-  padding-left: 1rem !important;
-  padding-right: 2.5rem !important;
-  border: 1px solid #d1d5db !important;
-  border-radius: 0.5rem !important;
-  font-size: 1rem !important;
-  width: 100%;
-  cursor: pointer;
-}
-
-:deep(.custom-datepicker-input:focus) {
-  outline: none !important;
-  border-color: #3b82f6 !important;
-  box-shadow: 0 0 0 2px #bfdbfe !important;
-}
-
-:deep(.dp__clear_icon) {
-  right: 10px !important;
-  color: #6b7280;
-}
-
-:deep(.dp__clear_icon:hover) {
-  color: #1f2937;
+  color: #ef4444; /* Warna merah saat hover */
 }
 </style>
