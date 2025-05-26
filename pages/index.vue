@@ -30,7 +30,7 @@
             </NuxtLink>
           </div>
         </div>
-        <div class="hidden md:block">
+        <div>
           <div
             class="bg-white p-1 rounded-xl shadow-2xl transform-gpu rotate-3 hover:rotate-0 transition-transform duration-500 shadow-blue-600"
           >
