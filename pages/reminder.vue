@@ -9,6 +9,7 @@
           Track and organize all your important tasks here.
         </p>
 
+        <!-- Fixed Date Picker Section -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
           <input
             v-model="newTodo.text"
@@ -16,12 +17,19 @@
             placeholder="What needs to be done?"
             class="md:col-span-3 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <input
-            type="datetime-local"
-            v-model="newTodo.reminder_at"
-            class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            title="Set a reminder time"
-          />
+          <div class="relative">
+            <VueDatePicker
+              v-model="newTodo.reminder_at"
+              :is24="true"
+              enable-seconds
+              placeholder="Set reminder time"
+              teleport-center
+              auto-apply
+              :min-date="new Date()"
+              input-class-name="dp-fixed-input"
+              :clearable="true"
+            />
+          </div>
           <select
             v-model="newTodo.priority"
             class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
@@ -81,7 +89,7 @@
                       :class="{
                         'text-blue-600 font-bold animate-pulse':
                           todo.is_reminding &&
-                          !(todo.overdue_text && todo.status === 'pending'), // Hanya pulse biru jika tidak overdue
+                          !(todo.overdue_text && todo.status === 'pending'),
                       }"
                     >
                       <svg
@@ -185,10 +193,17 @@
               <label class="block text-sm font-medium text-gray-700 mb-1"
                 >Pend until when?</label
               >
-              <input
-                type="datetime-local"
+              <VueDatePicker
                 v-model="modalInput.new_date"
-                class="w-full px-3 py-2 border border-gray-300 rounded-md"
+                :is24="true"
+                enable-seconds
+                placeholder="Select new reminder time"
+                teleport-center
+                auto-apply
+                :min-date="new Date()"
+                class="w-full"
+                input-class-name="dp-fixed-input"
+                :clearable="true"
               />
             </div>
             <div>
@@ -198,7 +213,7 @@
               <textarea
                 v-model="modalInput.reason"
                 rows="3"
-                class="w-full px-3 py-2 border border-gray-300 rounded-md"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g., Waiting for client confirmation"
               ></textarea>
             </div>
@@ -213,7 +228,7 @@
             <textarea
               v-model="modalInput.reason"
               rows="4"
-              class="w-full px-3 py-2 border border-gray-300 rounded-md"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="e.g., The project is no longer proceeding"
             ></textarea>
           </div>
@@ -239,29 +254,38 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from "vue";
+import VueDatePicker from "@vuepic/vue-datepicker";
+import "@vuepic/vue-datepicker/dist/main.css";
 
-// --- STATE MANAGEMENT ---
 const todos = ref([]);
 const newTodo = ref({ text: "", reminder_at: null, priority: "none" });
 const isModalOpen = ref(false);
 const modalContext = ref({ type: null, todoId: null });
-const modalInput = ref({ new_date: "", reason: "" });
+const modalInput = ref({ new_date: null, reason: "" });
 
-// --- AUTO-SAVING DATA ON CHANGE ---
 watch(
   todos,
   (newTodos) => {
+    const todosToSave = newTodos.map((todo) => ({
+      ...todo,
+      reminder_at: todo.reminder_at
+        ? new Date(todo.reminder_at).toISOString()
+        : null,
+    }));
     if (typeof saveTodos === "function") {
-      saveTodos(newTodos);
+      saveTodos(todosToSave);
     }
   },
   { deep: true }
 );
 
-// --- LIFECYCLE HOOK ---
 onMounted(() => {
   if (typeof loadTodos === "function") {
-    todos.value = loadTodos();
+    const loadedTodos = loadTodos();
+    todos.value = loadedTodos.map((todo) => ({
+      ...todo,
+      reminder_at: todo.reminder_at ? new Date(todo.reminder_at) : null,
+    }));
   }
   if (Notification.permission !== "granted") {
     Notification.requestPermission();
@@ -269,7 +293,6 @@ onMounted(() => {
   setInterval(checkReminders, 5000);
 });
 
-// --- COMPUTED PROPERTIES ---
 const groupedTodos = computed(() => {
   const groups = {};
   const undatedTasks = [];
@@ -300,7 +323,6 @@ const groupedTodos = computed(() => {
   return sortedGroups;
 });
 
-// --- TODO METHODS ---
 const addTodo = () => {
   if (newTodo.value.text.trim()) {
     todos.value.unshift({
@@ -330,10 +352,14 @@ const deleteTodo = (id) => {
   }
 };
 
-// --- MODAL METHODS ---
 const openModal = (type, todoId) => {
+  const todo = todos.value.find((t) => t.id === todoId);
   modalContext.value = { type, todoId };
-  modalInput.value = { new_date: "", reason: "" };
+  if (type === "pending" && todo && todo.reminder_at) {
+    modalInput.value = { new_date: new Date(todo.reminder_at), reason: "" };
+  } else {
+    modalInput.value = { new_date: null, reason: "" };
+  }
   isModalOpen.value = true;
 };
 
@@ -345,9 +371,13 @@ const handleModalSubmit = () => {
   const { type, todoId } = modalContext.value;
   const todo = todos.value.find((t) => t.id === todoId);
   if (!todo) return;
+
   if (type === "pending") {
     if (modalInput.value.new_date) todo.reminder_at = modalInput.value.new_date;
     if (modalInput.value.reason) todo.pending_reason = modalInput.value.reason;
+    todo.reminder_fired = false;
+    todo.is_reminding = false;
+    todo.overdue_text = null;
   } else if (type === "cancel") {
     todo.status = "canceled";
     if (modalInput.value.reason)
@@ -356,18 +386,20 @@ const handleModalSubmit = () => {
   closeModal();
 };
 
-// --- DISPLAY HELPERS ---
-const formatReminderDate = (dateString) =>
-  dateString
-    ? new Date(dateString).toLocaleString("en-US", {
-        dateStyle: "short",
-        timeStyle: "short",
-      })
-    : "";
+const formatReminderDate = (dateValue) => {
+  if (!dateValue) return "";
+  const date = typeof dateValue === "string" ? new Date(dateValue) : dateValue;
+  return date.toLocaleString("en-US", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+};
 
-const formatOverdueTime = (date) => {
+const formatOverdueTime = (dateValue) => {
   const now = new Date();
-  const overdueTime = now - date;
+  const reminderTime =
+    typeof dateValue === "string" ? new Date(dateValue) : dateValue;
+  const overdueTime = now - reminderTime;
   const minutes = Math.floor(overdueTime / 60000);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
@@ -378,38 +410,28 @@ const formatOverdueTime = (date) => {
 };
 
 const getCardClass = (todo) => {
-  // Peringatan Terlambat menjadi prioritas utama visual
   if (todo.overdue_text && todo.status === "pending")
     return "border-l-4 border-red-500 bg-red-500/10 animate-pulse";
-
-  // Status Selesai
   if (todo.status === "completed")
     return "border-l-4 border-green-500 bg-green-500/10 opacity-70";
-
-  // Status Dibatalkan
   if (todo.status === "canceled")
     return "border-l-4 border-gray-400 bg-gray-500/10 opacity-60";
-
-  // Status Pending (Default) akan berwarna Biru
-  // Warna dasar kartu sekarang akan selalu memiliki semburat biru
   return "border-l-4 border-blue-500 bg-blue-500/5";
 };
 
 const getPriorityBadgeClass = (priority) => {
-  // Badge prioritas sekarang akan selalu memiliki warna spesifiknya
   switch (priority) {
     case "high":
       return "bg-red-100 text-red-800";
     case "medium":
       return "bg-yellow-100 text-yellow-800";
     case "low":
-      return "bg-blue-200 text-blue-800"; // Biru lebih pekat untuk badge
-    default: // 'none'
-      return ""; // Tidak ada badge jika tanpa prioritas
+      return "bg-blue-200 text-blue-800";
+    default:
+      return "";
   }
 };
 
-// --- REMINDER LOGIC ---
 const checkReminders = () => {
   const now = new Date();
   todos.value.forEach((todo) => {
@@ -437,5 +459,61 @@ const checkReminders = () => {
 </script>
 
 <style scoped>
-/* You can add custom styling here if needed */
+/* Fixed Date Picker Styles */
+:deep(.dp-fixed-input) {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  padding-right: 2.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  background-color: white;
+  min-height: 3rem;
+}
+
+:deep(.dp-fixed-input:focus) {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px #bfdbfe;
+}
+
+:deep(.dp__clear_icon) {
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6b7280;
+}
+
+:deep(.dp__clear_icon:hover) {
+  color: #ef4444;
+}
+
+/* Original styles preserved */
+:deep(.custom-datepicker-input) {
+  padding-top: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+  padding-left: 1rem !important;
+  padding-right: 2.5rem !important;
+  border: 1px solid #d1d5db !important;
+  border-radius: 0.5rem !important;
+  font-size: 1rem !important;
+  width: 100%;
+  cursor: pointer;
+}
+
+:deep(.custom-datepicker-input:focus) {
+  outline: none !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px #bfdbfe !important;
+}
+
+:deep(.dp__clear_icon) {
+  right: 10px !important;
+  color: #6b7280;
+}
+
+:deep(.dp__clear_icon:hover) {
+  color: #1f2937;
+}
 </style>
