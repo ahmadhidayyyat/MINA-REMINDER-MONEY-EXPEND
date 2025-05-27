@@ -1,6 +1,5 @@
 // ~/utils/storage.ts
 
-// Definisikan tipe data untuk sebuah Todo agar kode lebih aman
 export interface Todo {
   id: number;
   text: string;
@@ -14,7 +13,6 @@ export interface Todo {
   overdue_text: string | null;
 }
 
-// Kunci unik untuk aplikasi Todo & Reminder kita
 const TODO_STORAGE_KEY = "todoAppReminderData";
 
 /**

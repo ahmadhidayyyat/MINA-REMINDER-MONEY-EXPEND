@@ -171,8 +171,6 @@
 </template>
 
 <script setup>
-// Blok <script setup> Anda SAMA PERSIS seperti versi terakhir Anda yang sudah ada fitur edit dan VueDatePicker
-// Tidak ada perubahan di sini jika sudah berfungsi sebelumnya.
 import { ref, computed, onMounted } from "vue";
 import VueDatePicker from "@vuepic/vue-datepicker";
 import "@vuepic/vue-datepicker/dist/main.css";
@@ -182,9 +180,6 @@ import {
   removeItem,
   generateRandomKey,
 } from "~/utils/localstorage";
-
-// Asumsi fungsi-fungsi ini di-auto-import oleh Nuxt dari utils/storage.ts
-// atau utils/localstorage.ts (sesuaikan dengan nama file Anda)
 
 const pengeluaran = ref([]);
 const form = ref({ tanggal: null, jumlah: null, keterangan: "" });
@@ -361,7 +356,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* Styling untuk VueDatePicker agar seragam */
 :deep(.custom-datepicker-input) {
   padding-top: 0.75rem !important;
   padding-bottom: 0.75rem !important;

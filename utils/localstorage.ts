@@ -1,20 +1,15 @@
-// ~/utils/localstorage.ts
-
-// Tipe data untuk satu item pengeluaran
 export interface Item {
   key: string;
-  tanggal: string; // Disimpan sebagai string format "YYYY-MM-DD"
+  tanggal: string;
   jumlah: number;
   keterangan: string;
 }
 
 /**
- * Menyimpan atau memperbarui item di Local Storage.
  * @param key Kunci unik untuk item.
  * @param value Objek item yang akan disimpan.
  */
 export const setItemLocalStorage = (key: string, value: Item): void => {
-  // Pastikan hanya berjalan di client side dan localStorage tersedia
   if (typeof window !== "undefined" && window.localStorage) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
@@ -26,7 +21,6 @@ export const setItemLocalStorage = (key: string, value: Item): void => {
 };
 
 /**
- * Mengambil semua item pengeluaran yang relevan dari Local Storage.
  * @returns {Item[]} Array dari item pengeluaran.
  */
 export const getAllItemFromLocalStorage = (): Item[] => {
@@ -35,14 +29,12 @@ export const getAllItemFromLocalStorage = (): Item[] => {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
 
-      // Filter kunci: Asumsi kunci yang relevan memiliki panjang 4 karakter.
-      // Ini adalah logika dari kode Anda sebelumnya.
       if (key && key.length === 4) {
         try {
           const storedItemString = localStorage.getItem(key);
           if (storedItemString) {
             const storedItemObject: Item = JSON.parse(storedItemString);
-            // Validasi sederhana untuk memastikan objek memiliki properti yang diharapkan
+
             if (
               storedItemObject &&
               typeof storedItemObject.key === "string" &&
@@ -67,8 +59,6 @@ export const getAllItemFromLocalStorage = (): Item[] => {
 };
 
 /**
- * Mengambil satu item spesifik dari Local Storage berdasarkan kuncinya.
- * (Fungsi ini mungkin tidak Anda gunakan secara langsung di kode .vue saat ini, tapi bagus untuk dimiliki)
  * @param key Kunci item yang akan diambil.
  * @returns {Item | null} Objek item atau null jika tidak ditemukan.
  */
@@ -86,7 +76,6 @@ export const getItem = (key: string): Item | null => {
 };
 
 /**
- * Menghapus item dari Local Storage berdasarkan kuncinya.
  * @param key Kunci item yang akan dihapus.
  */
 export const removeItem = (key: string): void => {

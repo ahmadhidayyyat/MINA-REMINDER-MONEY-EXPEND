@@ -612,38 +612,36 @@ const checkReminders = () => {
 </script>
 
 <style scoped>
-/* Fixed Date Picker Styles */
 :deep(.dp-fixed-input) {
   width: 100%;
   padding: 0.75rem 1rem;
-  padding-right: 2.5rem; /* Ruang untuk clear icon */
-  border: 1px solid #d1d5db; /* border-gray-300 */
-  border-radius: 0.5rem; /* rounded-lg */
+  padding-right: 2.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
   font-size: 1rem;
-  line-height: 1.5; /* Menyamakan tinggi dengan input lain */
+  line-height: 1.5;
   background-color: white;
-  min-height: 3rem; /* Menyamakan tinggi dengan input lain (48px) */
-  box-sizing: border-box; /* Agar padding dan border masuk dalam height */
+  min-height: 3rem;
+  box-sizing: border-box;
   cursor: pointer;
 }
 
 :deep(.dp-fixed-input:focus) {
   outline: none;
-  border-color: #3b82f6; /* focus:ring-blue-500 (warna border) */
-  box-shadow: 0 0 0 2px #bfdbfe; /* Mirip focus:ring-2 */
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px #bfdbfe;
 }
 
-/* Pastikan ikon clear terlihat dan posisinya benar */
 :deep(.dp__clear_icon) {
-  right: 0.75rem !important; /* Lebih ke dalam agar tidak tertutup jika input terlalu sempit */
+  right: 0.75rem !important;
   top: 50% !important;
   transform: translateY(-50%) !important;
-  color: #6b7280; /* text-gray-500 */
-  width: 1rem !important; /* Sesuaikan ukuran jika perlu */
-  height: 1rem !important; /* Sesuaikan ukuran jika perlu */
+  color: #6b7280;
+  width: 1rem !important;
+  height: 1rem !important;
 }
 
 :deep(.dp__clear_icon:hover) {
-  color: #ef4444; /* Warna merah saat hover */
+  color: #ef4444;
 }
 </style>

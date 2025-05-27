@@ -103,9 +103,7 @@ const closeMobileMenu = () => {
 </script>
 
 <style scoped>
-/* Jika perlu, tambahkan style kustom di sini. 
-   Misalnya, transisi untuk menu mobile jika diinginkan. */
 .absolute.top-full {
-  top: 100%; /* Memastikan dropdown muncul tepat di bawah header */
+  top: 100%;
 }
 </style>
