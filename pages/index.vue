@@ -17,7 +17,7 @@
             class="mt-10 flex flex-col sm:flex-row gap-4 justify-center md:justify-start"
           >
             <NuxtLink
-              to="/money"
+              to="/expense"
               class="px-8 py-4 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-transform transform hover:scale-105"
             >
               Record Expenses
@@ -133,10 +133,13 @@
                 />
               </svg>
             </div>
-            <h3 class="text-xl font-bold mb-3 text-gray-900">Local Storage</h3>
+            <h3 class="text-xl font-bold mb-3 text-gray-900">
+              Private Storage
+            </h3>
             <p class="text-gray-600">
-              All your data is stored securely in your browser. No need to worry
-              about losing data when the page reloads.
+              Your data is securely stored and encrypted on our cloud servers.
+              Linked only to your account, you can safely access and manage it
+              from any of your devices.
             </p>
           </div>
         </div>
@@ -153,6 +156,12 @@
     </footer>
   </div>
 </template>
+
+<script setup>
+definePageMeta({
+  middleware: "auth",
+});
+</script>
 
 <style scoped>
 /* Styling kustom bisa ditambahkan di sini jika perlu */

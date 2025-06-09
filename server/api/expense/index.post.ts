@@ -4,6 +4,7 @@ import { z } from "zod";
 import prisma from "~/utils/prisma";
 
 const createExpenseSchema = z.object({
+  userId: z.number(),
   deskripsi: z.string().min(1, "Deskripsi tidak boleh kosong"),
   // Perhatikan: Model Prisma Anda menggunakan 'jumlah BigInt'.
   // z.number() akan diterima dari JSON. Prisma Client akan mencoba mengonversinya.
@@ -43,16 +44,16 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    const { deskripsi, jumlah, tanggal } = validation.data;
+    const { deskripsi, jumlah, tanggal, userId } = validation.data;
 
     // Sesuaikan nama field dengan model Prisma 'Expenses' Anda
     const newExpense = await prisma.expenses.create({
       // Model Anda bernama 'Expenses'
       data: {
-        deskripsi: deskripsi, // field di Prisma: deskripsi
-        jumlah: jumlah, // field di Prisma: jumlah (Prisma akan handle number to BigInt)
-        tanggal: tanggal, // field di Prisma: tanggal
-        userId: 1,
+        deskripsi, // field di Prisma: deskripsi
+        jumlah, // field di Prisma: jumlah (Prisma akan handle number to BigInt)
+        tanggal, // field di Prisma: tanggal
+        userId,
       },
     });
 
@@ -65,7 +66,7 @@ export default defineEventHandler(async (event) => {
     }
     throw createError({
       statusCode: 500,
-      statusMessage: "Gagal membuat pengeluaran",
+      statusMessage: "Eror creating expense",
       // Anda bisa menyertakan detail error tambahan jika diperlukan untuk debugging
       // data: { message: error.message }
     });
