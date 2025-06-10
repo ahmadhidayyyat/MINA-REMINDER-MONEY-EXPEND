@@ -199,8 +199,6 @@
 import { ref, computed } from "vue";
 import VueDatePicker from "@vuepic/vue-datepicker";
 import "@vuepic/vue-datepicker/dist/main.css";
-import SimplePopup from "/components/SimplePopup.vue";
-import ConfirmationDialog from "/components/ConfirmationDialog.vue";
 
 // State untuk Form
 const form = ref({ tanggal: null, jumlah: null, keterangan: "" });
