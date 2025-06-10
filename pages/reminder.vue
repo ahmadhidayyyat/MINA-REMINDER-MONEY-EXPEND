@@ -48,8 +48,12 @@
                   ? 'bg-green-500 hover:bg-green-600'
                   : 'bg-blue-500 hover:bg-blue-600'
               "
+              :disabled="isSubmitting"
             >
-              {{ isEditing ? "Update Task" : "Add Task" }}
+              <span v-if="isSubmitting">{{
+                isEditing ? "Updating..." : "Adding..."
+              }}</span>
+              <span v-else>{{ isEditing ? "Update Task" : "Add Task" }}</span>
             </button>
           </div>
           <button
@@ -63,17 +67,17 @@
         </form>
 
         <div class="space-y-6 mt-8">
+          <div v-if="isLoading" class="text-center text-gray-500 py-6">
+            Loading tasks...
+          </div>
           <div
-            v-if="Object.keys(groupedTodos).length === 0 && !isLoading"
+            v-else-if="!todos || todos.length === 0"
             class="text-center text-gray-500 py-6"
           >
             🎉<br />
             No tasks yet. Please add your first task.
           </div>
-          <div v-if="isLoading" class="text-center text-gray-500 py-6">
-            Loading tasks...
-          </div>
-          <div v-for="(dayTasks, day) in groupedTodos" :key="day">
+          <div v-else v-for="(dayTasks, day) in groupedTodos" :key="day">
             <h3
               class="text-lg font-bold mb-3 pb-2 border-b-2"
               :class="
@@ -88,7 +92,7 @@
               <div
                 v-for="todo in dayTasks"
                 :key="todo.id"
-                class="p-4 border rounded-lg transition-all duration-300 flex flex-col"
+                class="p-4 border rounded-lg transition-all duration-300 flex flex-col sm:flex-row sm:items-center sm:justify-between"
                 :class="getCardClass(todo)"
               >
                 <div class="flex-grow">
@@ -116,7 +120,6 @@
                       }"
                     >
                       <svg
-                        xmlns="http://www.w3.org/2000/svg"
                         class="h-4 w-4"
                         fill="none"
                         viewBox="0 0 24 24"
@@ -138,21 +141,19 @@
                     "
                     class="text-xs text-gray-600 mt-2 p-2 bg-gray-100 rounded-md"
                   >
-                    <b>Reason for cancellation:</b>
-                    {{ todo.cancellation_reason }}
+                    <b>Reason:</b> {{ todo.cancellation_reason }}
                   </p>
                   <p
                     v-if="todo.pending_reason"
                     class="text-xs text-yellow-700 mt-2 p-2 bg-yellow-50 rounded-md"
                   >
-                    <b>Info for pending:</b> {{ todo.pending_reason }}
+                    <b>Info:</b> {{ todo.pending_reason }}
                   </p>
                   <p
                     v-if="todo.overdue_text && todo.status === 'pending'"
                     class="text-sm font-bold text-red-700 mt-2 p-2 bg-red-500/10 rounded-lg flex items-center gap-2"
                   >
                     <svg
-                      xmlns="http://www.w3.org/2000/svg"
                       class="h-5 w-5"
                       viewBox="0 0 20 20"
                       fill="currentColor"
@@ -166,7 +167,6 @@
                     <span>{{ todo.overdue_text }}</span>
                   </p>
                 </div>
-
                 <div
                   class="flex items-center gap-2 mt-4 pt-3 border-t sm:border-none sm:pt-0 sm:mt-0 sm:ml-auto flex-shrink-0"
                 >
@@ -277,6 +277,20 @@
         </div>
       </div>
     </div>
+
+    <SimplePopup
+      :show="showPopup"
+      :message="popupMessage"
+      :type="popupType"
+      @close="showPopup = false"
+    />
+    <ConfirmationDialog
+      :show="showConfirmDialog"
+      title="Delete Task"
+      message="Are you sure you want to permanently delete this task?"
+      @confirm="executeDelete"
+      @cancel="cancelDelete"
+    />
   </div>
 </template>
 
@@ -285,162 +299,109 @@ import { ref, computed, onMounted, watch } from "vue";
 import VueDatePicker from "@vuepic/vue-datepicker";
 import "@vuepic/vue-datepicker/dist/main.css";
 
-// --- STATE MANAGEMENT ---
-const todos = ref([]);
-const newTodo = ref({
-  id: null,
-  text: "",
-  reminder_at: null,
-  priority: "none",
+definePageMeta({
+  middleware: "auth",
 });
+const authStore = useMyAuthStore();
+
+const {
+  data: todos,
+  pending: isLoading,
+  error,
+  refresh,
+} = useFetch(
+  () => {
+    if (authStore.user?.id) {
+      return `/api/reminders/${authStore.user.id}`;
+    }
+    return null;
+  },
+  {
+    transform: (remindersFromServer) => {
+      if (!remindersFromServer) return [];
+      return remindersFromServer.map((reminder) => ({
+        id: reminder.id,
+        text: reminder.judul,
+        status: reminder.status || "pending",
+        priority: reminder.priorinpty,
+        reminder_at: reminder.tanggal ? new Date(reminder.tanggal) : null,
+        cancellation_reason: reminder.cancellation_reason || null,
+        pending_reason: reminder.pending_reason || null,
+        reminder_fired: false,
+        is_reminding: false,
+        overdue_text: null,
+      }));
+    },
+    default: () => [],
+    watch: [() => authStore.user?.id],
+  }
+);
+
+const newTodo = ref({ text: "", reminder_at: null, priority: "none" });
 const isModalOpen = ref(false);
 const modalContext = ref({ type: null, todoId: null });
 const modalInput = ref({ new_date: null, reason: "" });
-
 const isEditing = ref(false);
 const editingId = ref(null);
-const isLoading = ref(true);
+const isSubmitting = ref(false);
 
-// --- FORM SUBMISSION ---
-const handleSubmit = () => {
-  if (isEditing.value) {
-    updateTodo();
-  } else {
-    addTodo();
-  }
-};
+const showPopup = ref(false);
+const popupMessage = ref("");
+const popupType = ref("success");
+const showConfirmDialog = ref(false);
+const itemToDeleteId = ref(null);
 
-// --- AUTO-SAVING DATA ON CHANGE ---
-watch(
-  todos,
-  (newTodos) => {
-    const todosToSave = newTodos.map((todo) => ({
-      ...todo,
-      reminder_at: todo.reminder_at
-        ? new Date(todo.reminder_at).toISOString()
-        : null,
-    }));
-    if (typeof saveTodos === "function") {
-      saveTodos(todosToSave);
-    } else {
-      console.warn(
-        "saveTodos function is not defined. Data might not be saved to Local Storage."
-      );
-    }
-  },
-  { deep: true }
-);
+function triggerPopup(message, type = "success") {
+  popupMessage.value = message;
+  popupType.value = type;
+  showPopup.value = true;
+}
 
-// --- LIFECYCLE HOOK ---
 onMounted(() => {
-  if (typeof loadTodos === "function") {
-    const loadedTodos = loadTodos();
-    todos.value = loadedTodos.map((todo) => ({
-      ...todo,
-      reminder_at: todo.reminder_at ? new Date(todo.reminder_at) : null,
-    }));
-  } else {
-    console.warn(
-      "loadTodos function is not defined. Data might not be loaded from Local Storage."
-    );
-  }
-  isLoading.value = false;
   if (Notification.permission !== "granted") {
     Notification.requestPermission();
   }
   setInterval(checkReminders, 5000);
 });
 
-// --- COMPUTED PROPERTIES ---
-const groupedTodos = computed(() => {
-  const futureGroups = {};
-  const pastGroups = {};
-  const undatedTasks = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // Reset waktu hari ini ke tengah malam untuk perbandingan yang akurat
-
-  todos.value.forEach((todo) => {
-    if (todo.reminder_at) {
-      const reminderDate = new Date(todo.reminder_at);
-      const dayKey = reminderDate.toISOString().split("T")[0];
-
-      const reminderDateWithoutTime = new Date(reminderDate);
-      reminderDateWithoutTime.setHours(0, 0, 0, 0);
-
-      if (reminderDateWithoutTime < today) {
-        // Ini adalah tugas yang terlewat
-        if (!pastGroups[dayKey]) pastGroups[dayKey] = [];
-        pastGroups[dayKey].push(todo);
-      } else {
-        // Ini adalah tugas hari ini atau masa depan
-        if (!futureGroups[dayKey]) futureGroups[dayKey] = [];
-        futureGroups[dayKey].push(todo);
-      }
-    } else {
-      // Tugas tanpa tanggal
-      undatedTasks.push(todo);
-    }
-  });
-
-  const finalGroups = {};
-
-  // 1. Tambahkan tugas masa depan, diurutkan berdasarkan tanggal
-  Object.keys(futureGroups)
-    .sort()
-    .forEach((key) => {
-      const date = new Date(key + "T00:00:00");
-      const displayKey = date.toLocaleDateString("en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
-      finalGroups[displayKey] = futureGroups[key];
-    });
-
-  // 2. Tambahkan tugas tanpa tanggal
-  if (undatedTasks.length > 0) {
-    finalGroups["Tasks Without a Date"] = undatedTasks;
+const handleSubmit = async () => {
+  isSubmitting.value = true;
+  if (isEditing.value) {
+    await updateTodo();
+  } else {
+    await addTodo();
   }
-
-  // 3. Tambahkan tugas terlewat di paling bawah, diurutkan berdasarkan tanggal
-  Object.keys(pastGroups)
-    .sort()
-    .forEach((key) => {
-      const date = new Date(key + "T00:00:00");
-      const displayKey =
-        date.toLocaleDateString("en-US", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        }) + " (Past)"; // Tambahkan label (Past) untuk membedakan
-      finalGroups[displayKey] = pastGroups[key];
-    });
-
-  return finalGroups;
-});
-
-// --- TODO METHODS ---
-const resetNewTodoForm = () => {
-  newTodo.value = { id: null, text: "", reminder_at: null, priority: "none" };
+  isSubmitting.value = false;
 };
 
-const addTodo = () => {
-  if (newTodo.value.text.trim()) {
-    todos.value.unshift({
-      id: Date.now(),
-      text: newTodo.value.text.trim(),
-      status: "pending",
-      reminder_at: newTodo.value.reminder_at,
-      priority: newTodo.value.priority,
-      reminder_fired: false,
-      is_reminding: false,
-      cancellation_reason: null,
-      pending_reason: null,
-      overdue_text: null,
+const resetNewTodoForm = () => {
+  newTodo.value = { text: "", reminder_at: null, priority: "none" };
+};
+
+const addTodo = async () => {
+  if (!newTodo.value.text.trim()) {
+    triggerPopup("Task text is required.", "error");
+    return;
+  }
+  if (!newTodo.value.reminder_at) {
+    triggerPopup("Reminder date is required.", "error");
+    return;
+  }
+  try {
+    await $fetch("/api/reminders", {
+      method: "POST",
+      body: {
+        judul: newTodo.value.text,
+        priorinpty: newTodo.value.priority,
+        tanggal: newTodo.value.reminder_at.toISOString(),
+        userId: authStore.user.id,
+      },
     });
+    await refresh();
     resetNewTodoForm();
+    triggerPopup("New task added successfully!", "success");
+  } catch (err) {
+    triggerPopup(err.data?.message || "Failed to add task.", "error");
   }
 };
 
@@ -448,38 +409,33 @@ const startEdit = (todoToEdit) => {
   isEditing.value = true;
   editingId.value = todoToEdit.id;
   newTodo.value = {
-    id: todoToEdit.id,
     text: todoToEdit.text,
-    reminder_at: todoToEdit.reminder_at
-      ? new Date(todoToEdit.reminder_at)
-      : null,
+    reminder_at: todoToEdit.reminder_at,
     priority: todoToEdit.priority,
   };
   window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
-const updateTodo = () => {
-  const index = todos.value.findIndex((t) => t.id === editingId.value);
-  if (index !== -1) {
-    if (!newTodo.value.text.trim()) {
-      alert("Task text cannot be empty.");
-      return;
-    }
-    todos.value[index] = {
-      ...todos.value[index],
-      text: newTodo.value.text.trim(),
-      reminder_at: newTodo.value.reminder_at,
-      priority: newTodo.value.priority,
-      reminder_fired:
-        todos.value[index].reminder_at?.getTime() !==
-        newTodo.value.reminder_at?.getTime()
-          ? false
-          : todos.value[index].reminder_fired,
-      is_reminding: false,
-      overdue_text: null,
-    };
+const updateTodo = async () => {
+  if (!newTodo.value.text.trim() || !newTodo.value.reminder_at) {
+    triggerPopup("Task text and reminder date are required.", "error");
+    return;
   }
-  cancelEdit();
+  try {
+    await $fetch(`/api/reminders/${editingId.value}`, {
+      method: "PUT",
+      body: {
+        judul: newTodo.value.text,
+        priorinpty: newTodo.value.priority,
+        tanggal: newTodo.value.reminder_at.toISOString(),
+      },
+    });
+    await refresh();
+    cancelEdit();
+    triggerPopup("Task updated successfully!", "success");
+  } catch (err) {
+    triggerPopup(err.data?.message || "Failed to update task.", "error");
+  }
 };
 
 const cancelEdit = () => {
@@ -488,18 +444,51 @@ const cancelEdit = () => {
   resetNewTodoForm();
 };
 
-const markAs = (id, newStatus) => {
-  const todo = todos.value.find((t) => t.id === id);
-  if (todo) todo.status = newStatus;
-};
+const markAs = async (id, newStatus) => {
+  const currentTodo = todos.value.find((t) => t.id === id);
+  if (!currentTodo) return;
 
-const deleteTodo = (id) => {
-  if (confirm("Are you sure you want to permanently delete this task?")) {
-    todos.value = todos.value.filter((todo) => todo.id !== id);
+  try {
+    await $fetch(`/api/reminders/${id}`, {
+      method: "PUT",
+      body: {
+        status: newStatus,
+        judul: currentTodo.text,
+        priorinpty: currentTodo.priority,
+        tanggal: currentTodo.reminder_at.toISOString(),
+      },
+    });
+    await refresh();
+  } catch (err) {
+    triggerPopup(err.data?.message || "Failed to update status.", "error");
   }
 };
 
-// --- MODAL METHODS ---
+const deleteTodo = (id) => {
+  itemToDeleteId.value = id;
+  showConfirmDialog.value = true;
+};
+
+const executeDelete = async () => {
+  if (!itemToDeleteId.value) return;
+  const idToDelete = itemToDeleteId.value;
+  showConfirmDialog.value = false;
+  itemToDeleteId.value = null;
+
+  try {
+    await $fetch(`/api/reminders/${idToDelete}`, { method: "DELETE" });
+    await refresh();
+    triggerPopup("Task has been deleted.", "success");
+  } catch (err) {
+    triggerPopup(err.data?.message || "Failed to delete task.", "error");
+  }
+};
+
+const cancelDelete = () => {
+  showConfirmDialog.value = false;
+  itemToDeleteId.value = null;
+};
+
 const openModal = (type, todoId) => {
   const todo = todos.value.find((t) => t.id === todoId);
   modalContext.value = { type, todoId };
@@ -518,26 +507,101 @@ const closeModal = () => {
   isModalOpen.value = false;
 };
 
-const handleModalSubmit = () => {
+const handleModalSubmit = async () => {
   const { type, todoId } = modalContext.value;
-  const todo = todos.value.find((t) => t.id === todoId);
-  if (!todo) return;
+  const currentTodo = todos.value.find((t) => t.id === todoId);
+  if (!currentTodo) return;
 
-  if (type === "pending") {
-    if (modalInput.value.new_date) todo.reminder_at = modalInput.value.new_date;
-    if (modalInput.value.reason) todo.pending_reason = modalInput.value.reason;
-    todo.reminder_fired = false;
-    todo.is_reminding = false;
-    todo.overdue_text = null;
-  } else if (type === "cancel") {
-    todo.status = "canceled";
-    if (modalInput.value.reason)
-      todo.cancellation_reason = modalInput.value.reason;
+  try {
+    let updateData = {};
+    if (type === "pending") {
+      updateData = {
+        pending_reason: modalInput.value.reason,
+        tanggal: modalInput.value.new_date
+          ? modalInput.value.new_date.toISOString()
+          : currentTodo.reminder_at.toISOString(),
+      };
+    } else if (type === "cancel") {
+      updateData = {
+        status: "canceled",
+        cancellation_reason: modalInput.value.reason,
+      };
+    }
+    await $fetch(`/api/reminders/${todoId}`, {
+      method: "PUT",
+      body: {
+        judul: currentTodo.text,
+        priorinpty: currentTodo.priority,
+        ...updateData,
+      },
+    });
+    await refresh();
+    closeModal();
+    triggerPopup("Task updated.", "success");
+  } catch (err) {
+    triggerPopup(err.data?.message || "Failed to update task.", "error");
   }
-  closeModal();
 };
 
-// --- DISPLAY HELPERS ---
+const groupedTodos = computed(() => {
+  if (!todos.value) return {};
+  const futureGroups = {};
+  const pastGroups = {};
+  const undatedTasks = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  todos.value.forEach((todo) => {
+    if (todo.reminder_at) {
+      const reminderDate = new Date(todo.reminder_at);
+      const dayKey = reminderDate.toISOString().split("T")[0];
+      const reminderDateWithoutTime = new Date(reminderDate);
+      reminderDateWithoutTime.setHours(0, 0, 0, 0);
+
+      if (reminderDateWithoutTime < today) {
+        if (!pastGroups[dayKey]) pastGroups[dayKey] = [];
+        pastGroups[dayKey].push(todo);
+      } else {
+        if (!futureGroups[dayKey]) futureGroups[dayKey] = [];
+        futureGroups[dayKey].push(todo);
+      }
+    } else {
+      undatedTasks.push(todo);
+    }
+  });
+
+  const finalGroups = {};
+  Object.keys(futureGroups)
+    .sort()
+    .forEach((key) => {
+      const date = new Date(key + "T00:00:00");
+      const displayKey = date.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      finalGroups[displayKey] = futureGroups[key];
+    });
+  if (undatedTasks.length > 0) {
+    finalGroups["Tasks Without a Date"] = undatedTasks;
+  }
+  Object.keys(pastGroups)
+    .sort()
+    .forEach((key) => {
+      const date = new Date(key + "T00:00:00");
+      const displayKey =
+        date.toLocaleDateString("en-US", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        }) + " (Past)";
+      finalGroups[displayKey] = pastGroups[key];
+    });
+  return finalGroups;
+});
+
 const formatReminderDate = (dateValue) => {
   if (!dateValue) return "";
   const date = typeof dateValue === "string" ? new Date(dateValue) : dateValue;
@@ -584,8 +648,8 @@ const getPriorityBadgeClass = (priority) => {
   }
 };
 
-// --- REMINDER LOGIC ---
 const checkReminders = () => {
+  if (!todos.value) return;
   const now = new Date();
   todos.value.forEach((todo) => {
     todo.overdue_text = null;
@@ -599,6 +663,7 @@ const checkReminders = () => {
             body: `The task "${todo.text}" is past its due time.`,
             icon: "/favicon.ico",
           });
+          // new Audio('/notification.mp3').play().catch(e => console.error("Error playing sound:", e));
           todo.reminder_fired = true;
         }
       } else {
@@ -610,7 +675,6 @@ const checkReminders = () => {
   });
 };
 </script>
-
 <style scoped>
 :deep(.dp-fixed-input) {
   width: 100%;
@@ -625,13 +689,11 @@ const checkReminders = () => {
   box-sizing: border-box;
   cursor: pointer;
 }
-
 :deep(.dp-fixed-input:focus) {
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 2px #bfdbfe;
 }
-
 :deep(.dp__clear_icon) {
   right: 0.75rem !important;
   top: 50% !important;
@@ -640,7 +702,6 @@ const checkReminders = () => {
   width: 1rem !important;
   height: 1rem !important;
 }
-
 :deep(.dp__clear_icon:hover) {
   color: #ef4444;
 }

@@ -1,0 +1,3 @@
+1. buatkan about di halaman login 
+
+- belajar state management nuxt 3 (with pinia)

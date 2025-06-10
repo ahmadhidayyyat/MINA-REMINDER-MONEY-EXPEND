@@ -7,6 +7,14 @@
       <p class="text-gray-500 mb-6">
         Track and manage all your financial transactions here
       </p>
+
+      <div v-if="pending" class="mb-4 p-3 bg-blue-100 text-blue-800 rounded-lg">
+        Loading expense data...
+      </div>
+      <div v-if="error" class="mb-4 p-3 bg-red-100 text-red-800 rounded-lg">
+        Error: {{ error.message }}
+      </div>
+
       <form @submit.prevent="handleSubmit" class="space-y-4">
         <VueDatePicker
           v-model="form.tanggal"
@@ -27,6 +35,7 @@
           placeholder="Expense amount"
           class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           required
+          min="0"
         />
         <input
           type="text"
@@ -43,6 +52,7 @@
               ? 'bg-green-500 hover:bg-green-600'
               : 'bg-blue-500 hover:bg-blue-600'
           "
+          :disabled="pending"
         >
           {{ isEditing ? "Update Expense" : "Add Expense" }}
         </button>
@@ -56,7 +66,7 @@
         </button>
       </form>
 
-      <div v-if="pengeluaran.length" class="mt-8 border-t pt-6">
+      <div v-if="transformedExpenses.length" class="mt-8 border-t pt-6">
         <h2 class="text-2xl font-bold mb-4 text-gray-800">Monthly Summary</h2>
 
         <div
@@ -112,13 +122,11 @@
               <tbody>
                 <tr
                   v-for="item in data.items"
-                  :key="item.key"
+                  :key="item.id"
                   class="border-b hover:bg-gray-50 transition-colors duration-150"
                 >
                   <td class="p-3">{{ formatTanggal(item.tanggal) }}</td>
-                  <td class="p-3 font-semibold">
-                    Rp{{ item.jumlah.toLocaleString() }}
-                  </td>
+                  <td class="p-3 font-semibold">Rp{{ item.jumlah }}</td>
                   <td class="p-3">{{ item.keterangan }}</td>
                   <td class="p-3 flex space-x-2">
                     <button
@@ -128,7 +136,7 @@
                       Edit
                     </button>
                     <button
-                      @click="hapus(item.key)"
+                      @click="hapus(item.id)"
                       class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition-colors duration-200"
                     >
                       Delete
@@ -141,7 +149,10 @@
         </div>
       </div>
 
-      <div v-if="!pengeluaran.length" class="mt-10 text-center py-12">
+      <div
+        v-if="!transformedExpenses.length && !pending"
+        class="mt-10 text-center py-12"
+      >
         <div
           class="w-24 h-24 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center"
         >
@@ -167,62 +178,114 @@
         </p>
       </div>
     </div>
+
+    <SimplePopup
+      :show="showPopup"
+      :message="popupMessage"
+      :type="popupType"
+      @close="showPopup = false"
+    />
   </div>
+  <ConfirmationDialog
+    :show="showConfirmDialog"
+    title="Confirm Deletion"
+    message="Are you sure you want to delete this expense? This action cannot be undone."
+    @confirm="executeDelete"
+    @cancel="cancelDelete"
+  />
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed } from "vue";
 import VueDatePicker from "@vuepic/vue-datepicker";
 import "@vuepic/vue-datepicker/dist/main.css";
-import {
-  setItemLocalStorage,
-  getAllItemFromLocalStorage,
-  removeItem,
-  generateRandomKey,
-} from "~/utils/localstorage";
+import SimplePopup from "/components/SimplePopup.vue";
+import ConfirmationDialog from "/components/ConfirmationDialog.vue";
 
-const pengeluaran = ref([]);
+// State untuk Form
 const form = ref({ tanggal: null, jumlah: null, keterangan: "" });
 const isEditing = ref(false);
-const editingKey = ref(null);
+const editingId = ref(null);
 
-const handleSubmit = () => {
+// State untuk Pop-up Notifikasi
+const showPopup = ref(false);
+const popupMessage = ref("");
+const popupType = ref("success");
+
+// State untuk Dialog Konfirmasi
+const showConfirmDialog = ref(false);
+const itemToDeleteId = ref(null);
+
+const authStore = useMyAuthStore();
+
+// Fetch data dari API
+const {
+  data: expensesData,
+  pending,
+  error,
+  refresh,
+} = await useFetch(`/api/expense/${authStore.user.id}`, {
+  lazy: true,
+  server: true,
+});
+
+// Mengubah format data agar sesuai dengan tampilan
+const transformedExpenses = computed(() => {
+  if (!expensesData.value) return [];
+  return expensesData.value.map((expense) => ({
+    id: expense.id,
+    tanggal: expense.tanggal.split("T")[0],
+    jumlah: expense.jumlah,
+    keterangan: expense.deskripsi,
+  }));
+});
+
+// Fungsi untuk memicu pop-up notifikasi
+function triggerPopup(message, type = "success") {
+  popupMessage.value = message;
+  popupType.value = type;
+  showPopup.value = true;
+}
+
+// Fungsi utama untuk submit form
+const handleSubmit = async () => {
   if (isEditing.value) {
-    updatePengeluaran();
+    await updatePengeluaran();
   } else {
-    tambahPengeluaran();
+    await tambahPengeluaran();
   }
 };
 
-const tambahPengeluaran = () => {
+// Fungsi CRUD
+const tambahPengeluaran = async () => {
   if (
     !form.value.tanggal ||
     form.value.jumlah === null ||
     !form.value.keterangan.trim()
   ) {
-    alert("Please fill all fields correctly.");
+    triggerPopup("Please fill all fields correctly.", "error");
     return;
   }
-  const keyUnik = generateRandomKey();
-  const tanggalUntukSimpan = form.value.tanggal;
-
-  const dataUntukDisimpan = {
-    key: keyUnik,
-    tanggal: tanggalUntukSimpan,
-    jumlah: form.value.jumlah,
-    keterangan: form.value.keterangan.trim(),
-  };
-
-  pengeluaran.value.unshift({ ...dataUntukDisimpan });
-  setItemLocalStorage(keyUnik, dataUntukDisimpan);
-  console.log("Data disimpan ke LS dengan key:", keyUnik, dataUntukDisimpan);
-
-  resetForm();
+  try {
+    const payload = {
+      userId: authStore.user.id,
+      deskripsi: form.value.keterangan,
+      jumlah: form.value.jumlah,
+      tanggal: form.value.tanggal,
+    };
+    await $fetch("/api/expense", { method: "POST", body: payload });
+    resetForm();
+    await refresh();
+    triggerPopup("Expense added successfully!", "success");
+  } catch (err) {
+    console.error("Failed to add expense:", err);
+    triggerPopup("Failed to add expense.", "error");
+  }
 };
 
 const mulaiEdit = (item) => {
   isEditing.value = true;
-  editingKey.value = item.key;
+  editingId.value = item.id;
   form.value = {
     tanggal: item.tanggal,
     jumlah: item.jumlah,
@@ -231,35 +294,68 @@ const mulaiEdit = (item) => {
   window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
-const updatePengeluaran = () => {
-  const index = pengeluaran.value.findIndex(
-    (item) => item.key === editingKey.value
-  );
-  if (index !== -1) {
-    if (
-      !form.value.tanggal ||
-      form.value.jumlah === null ||
-      !form.value.keterangan.trim()
-    ) {
-      alert("Please fill all fields correctly for update.");
-      return;
-    }
-    const tanggalUntukSimpan = form.value.tanggal;
-    const dataUntukDisimpan = {
-      key: editingKey.value,
-      tanggal: tanggalUntukSimpan,
-      jumlah: form.value.jumlah,
-      keterangan: form.value.keterangan.trim(),
-    };
-    pengeluaran.value[index] = { ...dataUntukDisimpan };
-    setItemLocalStorage(editingKey.value, dataUntukDisimpan);
+const updatePengeluaran = async () => {
+  if (
+    !form.value.tanggal ||
+    form.value.jumlah === null ||
+    !form.value.keterangan.trim()
+  ) {
+    triggerPopup("Please fill all fields correctly for update.", "error");
+    return;
   }
-  cancelEdit();
+  try {
+    const payload = {
+      deskripsi: form.value.keterangan,
+      jumlah: form.value.jumlah,
+      tanggal: new Date(form.value.tanggal).toISOString(),
+    };
+    await $fetch(`/api/expense/${editingId.value}`, {
+      method: "PUT",
+      body: payload,
+    });
+    cancelEdit();
+    await refresh();
+    triggerPopup("Expense updated successfully!", "success");
+  } catch (err) {
+    console.error("Failed to update expense:", err);
+    triggerPopup("Failed to update expense.", "error");
+  }
+};
+
+// Fungsi untuk membuka dialog konfirmasi hapus
+const hapus = (id) => {
+  itemToDeleteId.value = id;
+  showConfirmDialog.value = true;
+};
+
+// Fungsi yang dijalankan jika pengguna menekan "Confirm"
+const executeDelete = async () => {
+  if (!itemToDeleteId.value) return;
+
+  showConfirmDialog.value = false;
+  try {
+    await $fetch(`/api/expense/${itemToDeleteId.value}`, {
+      method: "DELETE",
+    });
+    await refresh();
+    triggerPopup("Expense deleted successfully!", "success");
+  } catch (err) {
+    console.error("Failed to delete expense:", err);
+    triggerPopup("Failed to delete expense.", "error");
+  } finally {
+    itemToDeleteId.value = null;
+  }
+};
+
+// Fungsi yang dijalankan jika pengguna menekan "Cancel"
+const cancelDelete = () => {
+  showConfirmDialog.value = false;
+  itemToDeleteId.value = null;
 };
 
 const cancelEdit = () => {
   isEditing.value = false;
-  editingKey.value = null;
+  editingId.value = null;
   resetForm();
 };
 
@@ -267,28 +363,22 @@ const resetForm = () => {
   form.value = { tanggal: null, jumlah: null, keterangan: "" };
 };
 
-const hapus = (key) => {
-  if (confirm("Are you sure you want to delete this expense?")) {
-    removeItem(key);
-    pengeluaran.value = pengeluaran.value.filter((item) => item.key !== key);
-  }
-};
-
+// Computed Properties untuk kalkulasi data
 const totalPengeluaran = computed(() => {
-  return pengeluaran.value.reduce((sum, item) => sum + item.jumlah, 0);
+  return transformedExpenses.value.reduce((sum, item) => sum + item.jumlah, 0);
 });
 
 const rataRataPerHari = computed(() => {
-  if (pengeluaran.value.length === 0) return 0;
+  if (transformedExpenses.value.length === 0) return 0;
   const uniqueDates = [
-    ...new Set(pengeluaran.value.map((item) => item.tanggal)),
+    ...new Set(transformedExpenses.value.map((item) => item.tanggal)),
   ];
   return Math.round(totalPengeluaran.value / uniqueDates.length) || 0;
 });
 
 const pengeluaranPerBulan = computed(() => {
   const grouped = {};
-  const sortedPengeluaran = [...pengeluaran.value].sort((a, b) =>
+  const sortedPengeluaran = [...transformedExpenses.value].sort((a, b) =>
     b.tanggal.localeCompare(a.tanggal)
   );
 
@@ -324,6 +414,7 @@ const pengeluaranPerBulan = computed(() => {
   return result;
 });
 
+// Fungsi untuk formatting tampilan
 const formatTanggal = (tanggalValue) => {
   if (!tanggalValue) return "";
   const date = new Date(tanggalValue + "T00:00:00");
@@ -340,60 +431,4 @@ const formatBulan = (bulanKey) => {
   const date = new Date(year, month - 1);
   return date.toLocaleDateString("en-US", { year: "numeric", month: "long" });
 };
-
-onMounted(() => {
-  if (typeof getAllItemFromLocalStorage === "function") {
-    const allItems = getAllItemFromLocalStorage();
-    if (allItems && allItems.length) {
-      pengeluaran.value = allItems.sort((a, b) =>
-        b.tanggal.localeCompare(a.tanggal)
-      );
-    }
-  } else {
-    console.warn("getAllItemFromLocalStorage is not defined. Data not loaded.");
-  }
-});
 </script>
-
-<style scoped>
-:deep(.custom-datepicker-input) {
-  padding-top: 0.75rem !important;
-  padding-bottom: 0.75rem !important;
-  padding-left: 1rem !important;
-  padding-right: 2.5rem !important;
-  border: 1px solid #d1d5db !important;
-  border-radius: 0.5rem !important;
-  font-size: 1rem !important;
-  width: 100%;
-  cursor: pointer;
-}
-:deep(.custom-datepicker-input:focus) {
-  outline: none !important;
-  border-color: #3b82f6 !important;
-  box-shadow: 0 0 0 2px #bfdbfe !important;
-}
-:deep(.dp__clear_icon) {
-  right: 10px !important;
-  color: #6b7280;
-}
-:deep(.dp__clear_icon:hover) {
-  color: #1f2937;
-}
-
-body {
-  font-family: "Inter", sans-serif;
-}
-.overflow-y-auto::-webkit-scrollbar {
-  width: 4px;
-}
-.overflow-y-auto::-webkit-scrollbar-track {
-  background: #f1f5f9;
-}
-.overflow-y-auto::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 2px;
-}
-.overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-</style>
