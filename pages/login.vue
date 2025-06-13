@@ -98,8 +98,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
+
+// Definisikan interface untuk respons yang sukses
+interface LoginResponse {
+  success: boolean;
+  token: string;
+  user: {
+    id: number;
+    name: string | null;
+    email: string;
+  };
+  statusMessage: string;
+}
 
 definePageMeta({
   layout: "login",
@@ -138,8 +150,8 @@ const handleLogin = async () => {
   if (!isValid) return;
 
   try {
-    // Send request to the login API
-    const response = await $fetch("/api/auth/login", {
+    // Terapkan tipe LoginResponse ke $fetch di sini
+    const response = await $fetch<LoginResponse>("/api/auth/login", {
       method: "POST",
       body: {
         email: email.value,
@@ -147,21 +159,27 @@ const handleLogin = async () => {
       },
     });
 
+    // Sekarang TypeScript tahu bahwa 'response' memiliki properti 'success'
     if (response.success) {
       authStore.token = response.token;
       authStore.user = response.user;
       router.push("/");
     } else {
-      passwordError.value = "Invalid credentials";
+      // Baris ini mungkin tidak akan pernah tercapai jika API Anda
+      // melempar error pada kegagalan, tapi aman untuk menjaganya.
+      passwordError.value = response.statusMessage || "Invalid credentials";
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Login failed:", error);
-    passwordError.value = "An error occurred while logging in.";
+    // Ambil pesan error dari data respons jika ada
+    passwordError.value =
+      error.data?.statusMessage || "An error occurred while logging in.";
   }
 };
 
 onMounted(() => {
-  if (!authStore.isTokenExpired) {
+  if (authStore.token && !authStore.isTokenExpired) {
+    // Anda mungkin perlu menambahkan pengecekan token di sini
     router.push("/");
   }
 });
